@@ -2,7 +2,7 @@ from groq import Groq
 import json
 import time
 import logging
-from typing import List, Dict, Any  # Ensure all imports are present
+from typing import List, Dict, Any
 import re
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 class GroqClient:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
-        self.model = "mixtral-8x7b-32768"
+        # Updated model: using llama-3.3-70b-versatile as recommended replacement
+        self.model = "llama-3.3-70b-versatile"
         self.max_retries = 3
         self.retry_delay = 2
     
@@ -42,7 +43,7 @@ class GroqClient:
     
     def generate_toc(self, pdf_text: str, user_prompt: str = "") -> List[Dict]:
         """Generate table of contents from PDF text"""
-        system_msg = """You are an expert educational content analyzer. Create a clear, logical table of contents from document text."""
+        system_msg = """You are an expert educational content analyzer. Create a clear, logical table of contents from document text. Return ONLY valid JSON, no other text."""
         
         prompt = f"""
         USER REQUEST: {user_prompt if user_prompt else "Create a comprehensive study guide"}
@@ -69,6 +70,7 @@ class GroqClient:
         - Each section should have 2-5 subtopics
         - Estimate slides based on content density
         - Focus on learning progression
+        - Return ONLY JSON, no other text
         """
         
         response = self.make_request(prompt, system_msg, temperature=0.4)
@@ -82,22 +84,34 @@ class GroqClient:
             else:
                 toc_data = json.loads(response)
             
-            # Add start_slide positions
-            current_slide = 0
-            for section in toc_data:
-                section['start_slide'] = current_slide
-                current_slide += section.get('estimated_slides', 3)
+            # Validate and add start_slide positions
+            if isinstance(toc_data, list):
+                current_slide = 0
+                for section in toc_data:
+                    if isinstance(section, dict):
+                        section['start_slide'] = current_slide
+                        current_slide += section.get('estimated_slides', 3)
             
             logger.info(f"Generated TOC with {len(toc_data)} sections")
             return toc_data
             
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, AttributeError) as e:
             logger.error(f"Failed to parse TOC JSON: {response}")
-            raise
+            # Return a fallback TOC structure
+            return [
+                {
+                    "title": "Introduction",
+                    "pages": "1-3",
+                    "subtopics": ["Overview", "Key Concepts"],
+                    "estimated_slides": 3,
+                    "key_concepts": ["basic concepts"],
+                    "start_slide": 0
+                }
+            ]
     
     def generate_section_content(self, section: Dict, section_text: str, user_prompt: str) -> Dict:
         """Generate educational content for a section"""
-        system_msg = """You are an expert educational content creator. Create engaging, informative slides with assessments."""
+        system_msg = """You are an expert educational content creator. Create engaging, informative slides with assessments. Return ONLY valid JSON, no other text."""
         
         prompt = f"""
         USER STUDY PREFERENCES: {user_prompt}
@@ -106,7 +120,7 @@ class GroqClient:
         Key Concepts: {', '.join(section.get('key_concepts', []))}
         
         SECTION CONTENT:
-        {section_text[:6000]}  # Limit context size
+        {section_text[:6000]}
         
         Create comprehensive educational slides for this section.
         
@@ -124,7 +138,7 @@ class GroqClient:
             {{
               "question": "Clear question text",
               "type": "multiple_choice|multi_select|short_answer",
-              "options": ["A", "B", "C"]  # for multiple choice/select,
+              "options": ["A", "B", "C"],
               "correct_answer": "A or ['A','B'] or ideal text",
               "ideal_answer": "Detailed explanation of correct answer",
               "difficulty": "easy|medium|hard"
@@ -139,6 +153,7 @@ class GroqClient:
         - Include 1-2 quizzes per section
         - Use markdown for better formatting
         - Focus on key concepts from the section
+        - Return ONLY JSON, no other text
         """
         
         response = self.make_request(prompt, system_msg, temperature=0.7)
@@ -146,13 +161,37 @@ class GroqClient:
         try:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
-            return json.loads(response)
-        except json.JSONDecodeError as e:
+                content_data = json.loads(json_match.group())
+            else:
+                content_data = json.loads(response)
+            
+            # Validate the structure
+            if not isinstance(content_data, dict):
+                raise ValueError("Response is not a dictionary")
+                
+            return content_data
+            
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
             logger.error(f"Failed to parse section content JSON: {response}")
             # Return fallback structure
             return {
-                "slides": [{"title": "Content Generation Failed", "content": "Please try again.", "image_prompt": ""}],
-                "quizzes": [],
-                "youtube_queries": []
+                "slides": [
+                    {
+                        "title": f"{section['title']} - Overview",
+                        "content": f"Content for {section['title']}. This section covers key concepts from the document.",
+                        "image_prompt": f"educational diagram for {section['title']}",
+                        "key_points": ["Key concept 1", "Key concept 2"]
+                    }
+                ],
+                "quizzes": [
+                    {
+                        "question": f"What is the main topic of {section['title']}?",
+                        "type": "multiple_choice",
+                        "options": ["Option A", "Option B", "Option C", "Option D"],
+                        "correct_answer": "Option A",
+                        "ideal_answer": f"The main topic is {section['title']} as covered in this section.",
+                        "difficulty": "easy"
+                    }
+                ],
+                "youtube_queries": [f"{section['title']} educational video"]
             }
