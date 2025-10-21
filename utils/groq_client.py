@@ -11,7 +11,7 @@ class GroqClient:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
         # Updated model: using llama-3.3-70b-versatile as recommended replacement
-        self.model = "llama-3.1-8b-instant"
+        self.model = "llama-3.3-70b-versatile"
         self.max_retries = 3
         self.retry_delay = 2
     
