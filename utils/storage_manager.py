@@ -1,8 +1,9 @@
 import json
 import os
 import shutil
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List  # Added List import
 import logging
+from datetime import datetime  # Added datetime import
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class StorageManager:
                 "time_spent": 0
             }
     
-    def list_user_courses(self, user_id: str) -> List[Dict]:
+    def list_user_courses(self, user_id: str) -> List[Dict]:  # Fixed: Added List import
         """List all courses with user progress"""
         courses = []
         
@@ -169,5 +170,4 @@ class StorageManager:
     
     def _current_timestamp(self) -> str:
         """Get current timestamp string"""
-        from datetime import datetime
         return datetime.now().isoformat()
